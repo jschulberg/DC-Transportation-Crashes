@@ -1,5 +1,3 @@
-# DC-Transportation-Crashes
-Analysis of transportation-related crashes (car, motorcycle, pedestrian, bike) in the Washington, D.C. area.
-This project is in-line with D.C.'s Vision Zero goal.
+# Data Structure / Repository
 
-Ryan Test
+This folder contains all the data used in this project. 

@@ -1,6 +1,6 @@
 # Data Structure / Repository
 
-This folder contains all the datasets used in this project. The table below lists all the datasources, descriptions, and a clickable link to where we obtained the dataset:
+This folder contains all the datasets used in this project. The table below lists all the data sources with their descriptions and a clickable link to where we obtained the dataset:
 
 | Dataset       | Description |
 | ------------- | ------------- |

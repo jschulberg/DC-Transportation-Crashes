@@ -16,6 +16,7 @@ import os
 import math
 import requests
 import json
+import time
 
 #%%
 def get_crash_records(id_url, url):
@@ -54,7 +55,7 @@ def get_crash_records(id_url, url):
         id_json = json.loads(id_data)
         ids = id_json['objectIds']
         
-        print(f'Successfully pulled {len(ids)} from the OpenData website.')
+        print(f'Successfully pulled {len(ids)} IDs from the OpenData website.')
         
     # If this doesn't work, return an error message
     else: 
@@ -64,8 +65,9 @@ def get_crash_records(id_url, url):
     # Now initialize an empty dataframe to hold all of our results
     df = pd.DataFrame()
     
-    # Now loop through 1000-row chunks of our IDs, pulling the ids from the API accordingly
+    # Now loop through 100-row chunks of our IDs, pulling the ids from the API accordingly
     for i in range(math.ceil(len(ids)/100)):
+        time.sleep(1)
         print(f'Iteration {i}: Pulling API data for IDs {100*i}:{100*i+100}...')
         
         # Pull the 1000 necessary IDs 
@@ -103,6 +105,8 @@ url = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safety_W
 
 ids, df = get_crash_records(id_url, url)
 
+#%%
+temp = df.sample(1000)
 df.to_csv('Data/dc_crash_data_cleaned.csv', index = False)
 
 

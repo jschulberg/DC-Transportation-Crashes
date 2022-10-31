@@ -103,7 +103,7 @@ url = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safety_W
 
 ids, df = get_crash_records(id_url, url)
 
-
+df.to_csv('Data/dc_crash_data_cleaned.csv', index = False)
 
 
 

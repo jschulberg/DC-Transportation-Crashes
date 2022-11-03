@@ -12,7 +12,7 @@ import numpy as np
 import os
 
 #%%
-path = 'Data/dc_crash_data_cleaned.csv'
+path = 'Data/Crashes_in_DC.csv'
 df = pd.read_csv(path)
 
 
@@ -68,6 +68,8 @@ def pivot_data(df):
     # Reformat the 'INJURY_TYPE' column
     df_pivoted['INJURY_TYPE'] = df_pivoted['INJURY_TYPE'].str.title() \
                                                         .str.replace('injuries', ' Injuries')
+                                                        
+    df_pivoted['PERSON'] = df_pivoted['PERSON'].str.title()
     
     # Unfortunately, this increases the size of our dataframe 14x; however,
     # most of the rows don't have any data in them (i.e. there are no injuries reported), 
@@ -100,5 +102,102 @@ df_pivoted = pivot_data(df)
 print(df_pivoted['INJURY_TYPE'].value_counts())
 print('\n', df_pivoted['PERSON'].value_counts())
 
+
+#%% Run geospatial clustering
+from sklearn.cluster import DBSCAN
+
+def cluster_dbscan(df_pivoted, 
+                   eps = .5,
+                   min_samples = 10):
+    '''
+    Next, we'll look to see how accurate it is to define the crash epicenters
+    by ward, which are pre-assigned voting districts, rather than some other
+    natural method. To do so, we'll use the haversine-distance implementation
+    of DBSCAN.
+
+    Parameters
+    ----------
+    df_pivoted : DataFrame
+        DESCRIPTION.
+    eps : float, optional
+        The max distance that points can be from each other to be 
+        considered a cluster. The default is .5.
+    min_samples : int, optional
+        The minimum cluster size (everything else gets classified as noise).
+        The default is 10.
+
+    Returns
+    -------
+    df_clustered : DataFrame
+        New dataframe with one new column: 'cluster', denoting the clusters
+        that each row was assigned to.
+
+    '''
+    
+    # Pull out the lat long coordinates, removing duplicates and dropping any blanks
+    coordinates = df_pivoted[['LATITUDE', 'LONGITUDE']].drop_duplicates().dropna()
+    
+    # Convert the epsilon accordingly
+    miles_per_radian = 3956
+    epsilon = eps / miles_per_radian
+    
+    db = DBSCAN(eps = epsilon, 
+                algorithm = 'ball_tree',
+                metric = 'haversine',
+                min_samples = 2).fit(np.radians(coordinates))
+    
+
+    # db = DBSCAN(eps=epsilon, min_samples=1, algorithm='ball_tree', metric='haversine').fit(np.radians(coords))
+    cluster_labels = db.labels_
+    num_clusters = len(set(cluster_labels))
+    clusters = pd.Series([coordinates[cluster_labels == n] for n in range(num_clusters)])
+    print('Number of clusters: {}'.format(num_clusters))
+    
+    # Join the clusters back in
+    coordinate_clusters = pd.concat([pd.DataFrame(cluster_labels, columns = ['cluster']), 
+                                     coordinates.reset_index(drop = True)], 
+                                    axis = 1)
+    
+    df_clustered = df_pivoted.merge(coordinate_clusters,
+                                    how = 'left',
+                                    on = ['LATITUDE', 'LONGITUDE']
+                                    )
+    
+    return df_clustered, cluster_labels
+
+df_clustered, cluster_labels = cluster_dbscan(df_pivoted,
+                              eps = .1,
+                              min_samples = 100)
+print(df_clustered['cluster'].value_counts())
+
+#%% Compute silhouette scores
+from sklearn import metrics
+
+def compute_silhouette_score(df_clustered, cluster_labels):
+    # Pull out the lat long coordinates, removing duplicates and dropping any blanks
+    coordinates = df_clustered[['LATITUDE', 'LONGITUDE']].drop_duplicates().dropna()
+    
+    # Compute the silhouette score
+    silo = metrics.silhouette_score(np.radians(coordinates), cluster_labels)
+    
+    return silo
+
+
+eps_vals = np.arange(.1, 5, .1)
+silo_scores = []
+for i in eps_vals:
+    print(f'\nRunning DBSCAN for epsilon = {i}...')
+    df_clustered_iter, cluster_labels_iter = cluster_dbscan(df_pivoted,
+                                                              eps = i,
+                                                              min_samples = 100)
+    
+    print('Computing silhouette score...')
+    silo = compute_silhouette_score(df_clustered_iter, cluster_labels_iter)
+    
+    print(f'Score = {silo}')
+    silo_scores.append(silo)
+
+
 #%% Write out our results
+temp2 = df_clustered.sample(1000)
 df_pivoted.to_csv('Data/dc_crash_data_analyzed.csv')

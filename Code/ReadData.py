@@ -17,6 +17,8 @@ import math
 import requests
 import json
 import time
+from datetime import datetime
+
 
 #%%
 def get_crash_records(id_url, url):
@@ -66,6 +68,7 @@ def get_crash_records(id_url, url):
     df = pd.DataFrame()
     
     # Now loop through 100-row chunks of our IDs, pulling the ids from the API accordingly
+   
     for i in range(math.ceil(len(ids)/100)):
         time.sleep(1)
         print(f'Iteration {i}: Pulling API data for IDs {100*i}:{100*i+100}...')
@@ -104,10 +107,15 @@ id_url = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safet
 url = 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safety_WebMercator/MapServer/24/query?where=1%3D1&outFields=*&outSR=4326&f=json'
 
 ids, df = get_crash_records(id_url, url)
+#%%
+#convert timestamp encoding to datetime
+df["REPORTDATE"]=pd.to_datetime(df['REPORTDATE'], unit='ms')
+df["FROMDATE"]=pd.to_datetime(df['FROMDATE'], unit='ms')
+#df["TODATE"]=pd.to_datetime(df['TODATE'], unit='ms')
 
 #%%
-temp = df.sample(1000)
-df.to_csv('Data/dc_crash_data_cleaned.csv', index = False)
+#temp = df.sample(1000)
+df.to_csv('dc_crash_data_cleaned.csv', index = False)
 
 
 

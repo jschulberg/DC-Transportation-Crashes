@@ -12,7 +12,7 @@ import numpy as np
 import os
 
 #%%
-path = 'Data/Crashes_in_DC.csv'
+path = 'Data/dc_crash_data_cleaned.csv'
 df = pd.read_csv(path)
 
 
@@ -103,6 +103,8 @@ print(df_pivoted['INJURY_TYPE'].value_counts())
 print('\n', df_pivoted['PERSON'].value_counts())
 
 
+
+
 #%% Run geospatial clustering
 from sklearn.cluster import DBSCAN
 
@@ -121,7 +123,7 @@ def cluster_dbscan(df_pivoted,
         DESCRIPTION.
     eps : float, optional
         The max distance that points can be from each other to be 
-        considered a cluster. The default is .5.
+        considered a cluster. The default is .1.
     min_samples : int, optional
         The minimum cluster size (everything else gets classified as noise).
         The default is 10.
@@ -166,9 +168,12 @@ def cluster_dbscan(df_pivoted,
     return df_clustered, cluster_labels
 
 df_clustered, cluster_labels = cluster_dbscan(df_pivoted,
-                              eps = .1,
-                              min_samples = 100)
+                              eps = .05,
+                              min_samples = 10)
 print(df_clustered['cluster'].value_counts())
+
+
+
 
 #%% Compute silhouette scores
 from sklearn import metrics
@@ -183,21 +188,50 @@ def compute_silhouette_score(df_clustered, cluster_labels):
     return silo
 
 
-eps_vals = np.arange(.1, 5, .1)
-silo_scores = []
-for i in eps_vals:
-    print(f'\nRunning DBSCAN for epsilon = {i}...')
-    df_clustered_iter, cluster_labels_iter = cluster_dbscan(df_pivoted,
-                                                              eps = i,
-                                                              min_samples = 100)
+# eps_vals = np.concatenate((np.arange(.01, .1, .02), np.arange(.1, .5, .1)))
+# silo_scores = []
+# for i in eps_vals:
+#     print(f'\nRunning DBSCAN for epsilon = {i}...')
+#     df_clustered_iter, cluster_labels_iter = cluster_dbscan(df_pivoted,
+#                                                               eps = i,
+#                                                               min_samples = 100)
     
-    print('Computing silhouette score...')
-    silo = compute_silhouette_score(df_clustered_iter, cluster_labels_iter)
+#     print('Computing silhouette score...')
+#     silo = compute_silhouette_score(df_clustered_iter, cluster_labels_iter)
     
-    print(f'Score = {silo}')
-    silo_scores.append(silo)
+#     print(f'Score = {silo}')
+#     silo_scores.append(silo)
+
+#%% Function to process lots of epsilon values and concatenate the results
+def compute_multiple_dbscans(df_pivoted, eps_vals = []):
+    # Initialize an empty dataframe to hold our results
+    df_stacked = pd.DataFrame()
+    
+    # Loop through all of our epsilon values
+    for eps in eps_vals:
+        print(f'Running DBSCAN for epsilon = {eps}...')
+        # Run DBSCAN
+        df_clustered, cluster_labels = cluster_dbscan(df_pivoted,
+                                      eps = eps,
+                                      min_samples = 10)
+        df_clustered['eps'] = eps
+        
+        # Remove any rows that aren't grouped properly
+        df_clustered_filtered = df_clustered.loc[(df_clustered['cluster'] != 0), :]# | \
+                                                 # (df_clustered['cluster'] != -1), :]
+        
+        # Concatenate the results
+        df_stacked = pd.concat([df_stacked, df_clustered_filtered])
+        
+    return df_stacked
+        
+eps_vals = np.arange(.01, .1, .01)
+df_stacked = compute_multiple_dbscans(df_pivoted, eps_vals = eps_vals)
+
+print(df_stacked['eps'].value_counts())
 
 
 #%% Write out our results
 temp2 = df_clustered.sample(1000)
-df_pivoted.to_csv('Data/dc_crash_data_analyzed.csv')
+df_clustered.to_csv('Data/dc_crash_data_analyzed.csv')
+df_stacked.to_csv('Data/dbscan_multiple_epsilons.csv', index = False)

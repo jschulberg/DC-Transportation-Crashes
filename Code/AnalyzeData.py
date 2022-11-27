@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import os
 
+
 #%%
 path = 'Data/dc_crash_data_cleaned.csv'
 df = pd.read_csv(path)
@@ -102,7 +103,143 @@ df_pivoted = pivot_data(df)
 print(df_pivoted['INJURY_TYPE'].value_counts())
 print('\n', df_pivoted['PERSON'].value_counts())
 
+#%% Run Kmeans clustering
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+def cluster_preprocess(df): 
+    '''
+    Our goal here is to take our pivoted data frame and perform necessary pre-processing for clustering.
+    First, we select columns of interest in four categories: impairment flags, vehicle type flags, 
+    geographic columns, and columns pivoted in the previous step. We use coordinates instead of lat/long
+    because clustering algorithms work better with coordinates. Because we are more interested in the 
+    types of entities involved in a crash than the number of each entity, we convert the total entity
+    columns into a flag.
 
+    Parameters
+    ----------
+    df : DataFrame
+        pivoted DataFrame.
+
+    Returns
+    -------
+    df_pivoted_trim : DataFrame
+        trimmed dataframe with only columns of interest, one-hot encoded where categorical
+
+    '''
+    df_pivoted_trim=df[[
+        #geo columns, using coordinates instead of lat/long because clustering algos do better with coordinates.
+        'XCOORD','YCOORD', 'WARD',
+         #impairment cols
+        'SPEEDING_INVOLVED','BICYCLISTSIMPAIRED',  'DRIVERSIMPAIRED', 'PEDESTRIANSIMPAIRED',
+        #convert to vehicle flags for these cols
+        'TOTAL_BICYCLES','TOTAL_GOVERNMENT','TOTAL_PEDESTRIANS','TOTAL_VEHICLES','TOTAL_TAXIS',
+        #pivoted columns
+        'PERSON',  'INJURY_TYPE','INJURY_COUNT']] 
+
+    #convert total colums to a flag
+    flag_cols=['TOTAL_BICYCLES','TOTAL_GOVERNMENT','TOTAL_PEDESTRIANS','TOTAL_VEHICLES','TOTAL_TAXIS']
+    for i in flag_cols:
+        df_pivoted_trim[i]=df_pivoted_trim.loc[df_pivoted_trim[i]>1,i]=1 #positive case
+        df_pivoted_trim[i]=df_pivoted_trim.loc[df_pivoted_trim[i]<0,i]=0 #replace neg vals with 0
+
+    #drop the crashes that occur on a ward border, usually a major street, about 0.5% of records
+    df_pivoted_trim=df_pivoted_trim[df_pivoted_trim.WARD !='Null']
+    df_pivoted_trim=df_pivoted_trim[df_pivoted_trim.WARD !='UNKNOWN']
+    df_pivoted_trim=df_pivoted_trim.dropna(subset=['WARD'])
+
+    #one-hot encode categorical columns
+    cat_cols=['PERSON', 'INJURY_TYPE','WARD']
+    for i in cat_cols:
+        ohe=pd.get_dummies(df_pivoted_trim[i])
+        df_pivoted_trim=df_pivoted_trim.drop(i,axis=1)
+        df_pivoted_trim=df_pivoted_trim.join(ohe)
+    return df_pivoted_trim.drop_duplicates()
+
+df_pivoted_trim=cluster_preprocess(df_pivoted)
+
+#%% Generate elbow graph
+def plot_kmeans_elbow(df):
+    '''
+    Generate an elbow graph using preprocessed data with selected columns of interest. 
+    Use to select optimal number of clusters.
+
+    Parameters
+    ----------
+    df : DataFrame
+        pivoted DataFrame of preprocessed data.
+
+    Returns
+    -------
+    Generates an elbow graph
+    '''
+    distortions = []
+    for i in range(1, 11):
+        km = KMeans(
+            n_clusters=i, init='random',
+            n_init=10, max_iter=300,
+            tol=1e-04, random_state=0
+        )
+        km.fit(df)
+        distortions.append(km.inertia_)
+    # plot
+    plt.plot(range(1, 11), distortions, marker='o')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Distortion')
+    plt.title('Elbow Graph for KMeans Clustering')
+    plt.show()
+plot_kmeans_elbow(df_pivoted_trim)
+
+
+#%% Run Kmeans clustering
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+def KMeans_cluster(df):
+    '''
+    Our goal here is to take our pivoted data frame and perform necessary pre-processing for clustering.
+    First, we select columns of interest in four categories: impairment flags, vehicle type flags, 
+    geographic columns, and columns pivoted in the previous step. We use coordinates instead of lat/long
+    because clustering algorithms work better with coordinates. Because we are more interested in the 
+    types of entities involved in a crash than the number of each entity, we convert the total entity
+    columns into a flag.
+
+    Parameters
+    ----------
+    df : DataFrame
+        pivoted and pre-processed DataFrame.
+
+    Returns
+    -------
+    df_pivoted_trim : DataFrame
+        pivoted and pre-processed dataframe with cluster assignments for each n_clusters appended
+
+    '''
+    for i in range(2,10):
+        km = KMeans(n_clusters=i, random_state=0)
+        label=km.fit_predict(df)
+        df[f'cluster {i}']=label
+
+    df_np=df.to_numpy()
+
+    fig, axs = plt.subplots(2,4, figsize=(16, 8), facecolor='w', edgecolor='k')
+    fig.subplots_adjust(hspace = .2, wspace=.001)
+    axs = axs.ravel()
+    for ax in axs: 
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    for i in range(2, 10):
+        km = KMeans(n_clusters=i, random_state=0)
+        label=km.fit_predict(df_np)
+        u_labels = np.unique(label)
+        centroids = km.cluster_centers_
+
+        axs[i-2].set_title(f'{i} Clusters')
+        for j in u_labels:
+            axs[i-2].scatter(df_np[label == j , 0] , df_np[label == j , 1] ,label=j,s=2,cmap='viridis')
+        axs[i-2].scatter(centroids[:,0] , centroids[:,1] , s = 30, color = 'k')
+    plt.show()
+    return df
+KMeans_cluster(df_pivoted_trim).to_csv('Data/KMeans_cluster_results.csv')
 
 
 #%% Run geospatial clustering

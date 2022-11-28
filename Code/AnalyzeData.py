@@ -139,8 +139,7 @@ def cluster_preprocess(df):
     #convert total colums to a flag
     flag_cols=['TOTAL_BICYCLES','TOTAL_GOVERNMENT','TOTAL_PEDESTRIANS','TOTAL_VEHICLES','TOTAL_TAXIS']
     for i in flag_cols:
-        df_pivoted_trim[i]=df_pivoted_trim.loc[df_pivoted_trim[i]>1,i]=1 #positive case
-        df_pivoted_trim[i]=df_pivoted_trim.loc[df_pivoted_trim[i]<0,i]=0 #replace neg vals with 0
+        df_pivoted_trim[i]=df_pivoted_trim[i].clip(lower=0,upper=1) 
 
     #drop the crashes that occur on a ward border, usually a major street, about 0.5% of records
     df_pivoted_trim=df_pivoted_trim[df_pivoted_trim.WARD !='Null']

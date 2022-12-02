@@ -4,6 +4,7 @@
 Created on Mon Oct 31 10:39:12 2022
 
 @author: justinschulberg
+@co-author: Seahawks500 (kmeans section)
 """
 
 #%%
@@ -106,6 +107,7 @@ print('\n', df_pivoted['PERSON'].value_counts())
 #%% Run Kmeans clustering
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
+os.environ["OMP_NUM_THREADS"] = '1' #used to resolve a memory issue in kmeans
 def cluster_preprocess(df): 
     '''
     Our goal here is to take our pivoted data frame and perform necessary pre-processing for clustering.
@@ -127,8 +129,10 @@ def cluster_preprocess(df):
 
     '''
     df_pivoted_trim=df[[
+        #id column
+        'CRIMEID',
         #geo columns, using coordinates instead of lat/long because clustering algos do better with coordinates.
-        'XCOORD','YCOORD', 'WARD',
+        'XCOORD','YCOORD', 'WARD','LATITUDE','LONGITUDE',
          #impairment cols
         'SPEEDING_INVOLVED','BICYCLISTSIMPAIRED',  'DRIVERSIMPAIRED', 'PEDESTRIANSIMPAIRED',
         #convert to vehicle flags for these cols
@@ -152,6 +156,14 @@ def cluster_preprocess(df):
         ohe=pd.get_dummies(df_pivoted_trim[i])
         df_pivoted_trim=df_pivoted_trim.drop(i,axis=1)
         df_pivoted_trim=df_pivoted_trim.join(ohe)
+        
+    #create sample weight and merge it in
+    df3=df_pivoted_trim[['CRIMEID','XCOORD','YCOORD']]\
+    .groupby(['XCOORD','YCOORD'])['CRIMEID'].count().reset_index()
+    df3=df3.rename(columns={'CRIMEID':'SAMPLE_WEIGHT'})
+    
+    df_pivoted_trim=df_pivoted_trim.merge(df3,how='left',on=['XCOORD','YCOORD'])
+    df_pivoted_trim=df_pivoted_trim.drop('CRIMEID',axis=1)
     return df_pivoted_trim.drop_duplicates()
 
 df_pivoted_trim=cluster_preprocess(df_pivoted)
@@ -169,7 +181,7 @@ def plot_kmeans_elbow(df):
 
     Returns
     -------
-    Generates an elbow graph
+    Generates an elbow graph. Nothing Returned
     '''
     distortions = []
     for i in range(1, 11):
@@ -178,7 +190,7 @@ def plot_kmeans_elbow(df):
             n_init=10, max_iter=300,
             tol=1e-04, random_state=0
         )
-        km.fit(df)
+        km.fit(df.drop(['LATITUDE','LONGITUDE'],axis=1)) #keeping lat/long breaks the algo
         distortions.append(km.inertia_)
     # plot
     plt.plot(range(1, 11), distortions, marker='o')
@@ -189,10 +201,8 @@ def plot_kmeans_elbow(df):
 plot_kmeans_elbow(df_pivoted_trim)
 
 
-#%% Run Kmeans clustering
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-def KMeans_cluster(df):
+#%% Run Kmeans clustering - weighted and unweighted
+def KMeans_cluster(df,sample_weight,Title="Cluster Results"):
     '''
     Our goal here is to take our pivoted data frame and perform necessary pre-processing for clustering.
     First, we select columns of interest in four categories: impairment flags, vehicle type flags, 
@@ -214,13 +224,16 @@ def KMeans_cluster(df):
     '''
     for i in range(2,10):
         km = KMeans(n_clusters=i, random_state=0)
-        label=km.fit_predict(df)
+        label=km.fit_predict(df.drop(['LATITUDE','LONGITUDE'],axis=1),sample_weight=sample_weight)
         df[f'cluster {i}']=label
 
-    df_np=df.to_numpy()
+    df_np=df.drop(['LATITUDE','LONGITUDE'],axis=1).to_numpy()
 
     fig, axs = plt.subplots(2,4, figsize=(16, 8), facecolor='w', edgecolor='k')
     fig.subplots_adjust(hspace = .2, wspace=.001)
+    fig.suptitle(Title,size=30)
+    
+        
     axs = axs.ravel()
     for ax in axs: 
         ax.set_xticks([])
@@ -228,17 +241,73 @@ def KMeans_cluster(df):
 
     for i in range(2, 10):
         km = KMeans(n_clusters=i, random_state=0)
-        label=km.fit_predict(df_np)
+        label=km.fit_predict(df_np,sample_weight=sample_weight)
         u_labels = np.unique(label)
         centroids = km.cluster_centers_
 
-        axs[i-2].set_title(f'{i} Clusters')
+        axs[i-2].set_title(f'{i} Clusters',size=20)
         for j in u_labels:
             axs[i-2].scatter(df_np[label == j , 0] , df_np[label == j , 1] ,label=j,s=2,cmap='viridis')
-        axs[i-2].scatter(centroids[:,0] , centroids[:,1] , s = 30, color = 'k')
+        axs[i-2].scatter(centroids[:,0] , centroids[:,1] , s = 100, color = 'k')
     plt.show()
     return df
-KMeans_cluster(df_pivoted_trim).to_csv('Data/KMeans_cluster_results.csv')
+
+df_main=df_pivoted_trim
+sample_weight=df_main['SAMPLE_WEIGHT']
+df_main=df_main.drop('SAMPLE_WEIGHT',axis=1)
+KMeans_cluster(df_main,sample_weight=sample_weight,
+               Title="DC Crash Data Weighted Cluster Analysis Results").to_csv('Data/KMeans_weighted_cluster_results.csv')
+KMeans_cluster(df_main,sample_weight=None,
+               Title="DC Crash Data Cluster Analysis Results").to_csv('Data/KMeans_cluster_results.csv')
+
+#%% Run Kmeans clustering by ward - weighted and unweighted
+def KMeans_cluster_byward(df,sample_weight=True,Title="Cluster Results by Ward"):
+    '''
+    Run KMeans clustering by ward, using four clusters, the optimal number according to the elbow graph
+
+    Parameters
+    ----------
+    df : DataFrame
+        pivoted and pre-processed DataFrame.
+
+    Returns
+    -------
+    df : DataFrame
+        Outputs a graphic of results. Dataframe with sample weights if used is returned as well.
+
+    '''
+
+    fig, axs = plt.subplots(2,4, figsize=(16, 8), facecolor='w', edgecolor='k')
+    fig.subplots_adjust(hspace = .2, wspace=.001)
+    fig.suptitle(Title,size=30)
+    axs = axs.ravel()
+    for ax in axs: 
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    for i in range(1, 9):
+        df_ward=df[df[f'Ward {i}']==1]
+        if sample_weight==True:
+            ward_sample_weight=df_ward['SAMPLE_WEIGHT']
+        else:
+            ward_sample_weight=None
+        df_ward=df_ward.drop('SAMPLE_WEIGHT',axis=1)
+        df_ward=df_ward.drop(['LATITUDE','LONGITUDE'],axis=1).to_numpy()
+        km = KMeans(n_clusters=4, random_state=0)
+        label=km.fit_predict(df_ward,sample_weight=ward_sample_weight)
+        u_labels = np.unique(label)
+        centroids = km.cluster_centers_
+
+        axs[i-1].set_title(f'Ward {i}',size=20)
+        for j in u_labels:
+            axs[i-1].scatter(df_ward[label == j , 0] , df_ward[label == j , 1] ,label=j,s=2)
+        axs[i-1].scatter(centroids[:,0] , centroids[:,1] , s = 100, color = 'k')
+    plt.show()
+    return df
+KMeans_cluster_byward(df_pivoted_trim,sample_weight=True,
+               Title="DC Crash Data Weighted Cluster Analysis Results By Ward")
+KMeans_cluster_byward(df_pivoted_trim,sample_weight=False,
+               Title="DC Crash Data Cluster Analysis Results By Ward")
 
 
 #%% Run geospatial clustering
